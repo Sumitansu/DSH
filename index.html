@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Daily Survivor</title>
+    <!-- React & Tailwind via CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { background-color: #020617; color: #e2e8f0; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+        const { Heart, Utensils, Zap, Skull, TrendingUp, ShieldAlert, Play, Map, Sun } = lucide;
+
+        // --- RNG ENGINE (Seeded) ---
+        // MurmurHash3 + SFC32 for deterministic results
+        const cyrb128 = (str) => {
+            let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
+            for (let i = 0, k; i < str.length; i++) {
+                k = str.charCodeAt(i);
+                h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+                h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+                h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+                h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+            }
+            h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+            h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+            h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+            h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+            return [(h1^h2^h3^h4)>>>0, (h2^h1)>>>0, (h3^h1)>>>0, (h4^h1)>>>0];
+        };
+        const sfc32 = (a, b, c, d) => {
+            return function() {
+                a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
+                var t = (a + b) | 0;
+                a = b ^ b >>> 9;
+                b = c + (c << 3) | 0;
+                c = (c << 21) | (c >>> 11);
+                d = (d + 1) | 0;
+                t = (t + d) | 0;
+                c = (c + t) | 0;
+                return (t >>> 0) / 4294967296;
+            }
+        }
+        const getRoll = (seed, day, context, subId) => {
+            const sig = `${seed}-${day}-${context}-${subId}`;
+            const seeds = cyrb128(sig);
+            return sfc32(seeds[0], seeds[1], seeds[2], seeds[3])();
+        };
+
+        // --- GAME COMPONENT ---
+        const App = () => {
+            const [view, setView] = useState('loading');
+            const [events, setEvents] = useState([]);
+            const [error, setError] = useState(null);
+            
+            // Game State
+            const [mode, setMode] = useState('daily');
+            const [stats, setStats] = useState({ health: 100, food: 5, energy: 100, morale: 100, score: 0 });
+            const [day, setDay] = useState(1);
+            const [logs, setLogs] = useState([]);
+            const [currentEvent, setCurrentEvent] = useState(null);
+            const [result, setResult] = useState(null);
+            const today = new Date().toISOString().split('T')[0];
+
+            // 1. LOADER SYSTEM
+            // Fetches manifest.json -> fetches all event packs -> merges them
+            useEffect(() => {
+                const loadContent = async () => {
+                    try {
+                        // A. Fetch Manifest
+                        const manifestRes = await fetch('manifest.json');
+                        if (!manifestRes.ok) throw new Error("Could not find manifest.json");
+                        const fileList = await manifestRes.json();
+
+                        // B. Fetch All Packs
+                        let allEvents = [];
+                        for (const file of fileList) {
+                            const res = await fetch(file);
+                            const data = await res.json();
+                            allEvents = [...allEvents, ...data];
+                        }
+
+                        console.log(`Loaded ${allEvents.length} events.`);
+                        setEvents(allEvents);
+                        setView('menu');
+                    } catch (err) {
+                        setError(err.message);
+                    }
+                };
+                loadContent();
+            }, []);
+
+            // 2. EVENT SELECTOR
+            useEffect(() => {
+                if (view === 'game' && !currentEvent && !result) {
+                    const seed = mode === 'daily' ? today : (today + "practice");
+                    const roll = getRoll(seed, day, 'SELECT', 0);
+                    
+                    // Filter valid events
+                    const valid = events.filter(e => {
+                        if (!e.req) return true;
+                        // Simple requirement parser
+                        if (e.req.minDay && day < e.req.minDay) return false;
+                        if (e.req.maxThreat && stats.threat > e.req.maxThreat) return false;
+                        return true;
+                    });
+
+                    // Fallback if no events match
+                    if (valid.length === 0) {
+                        setCurrentEvent({ title: "Quiet Day", text: "Nothing happens.", choices: [{text:"Rest", risk:"safe"}] });
+                        return;
+                    }
+
+                    // Pick one
+                    const idx = Math.floor(roll * valid.length);
+                    setCurrentEvent(valid[idx]);
+                }
+            }, [view, day, result, currentEvent, events, mode]);
+
+            // 3. LOGIC RESOLVER
+            const handleChoice = (choice, idx) => {
+                const seed = mode === 'daily' ? today : (today + "practice");
+                const roll = getRoll(seed, day, currentEvent.id || 'evt', idx);
+                
+                // Determine Success/Fail
+                // Uses "threshold" from JSON, or defaults to 0.5
+                const threshold = choice.threshold || 0.5;
+                const isSuccess = roll > (1 - threshold); 
+
+                const outcome = isSuccess ? choice.success : choice.fail;
+                
+                // Apply Effects
+                const newStats = { ...stats };
+                if (outcome.effects) {
+                    Object.keys(outcome.effects).forEach(k => {
+                        newStats[k] = (newStats[k] || 0) + outcome.effects[k];
+                    });
+                }
+                
+                // Daily drain & Clamping
+                newStats.food = Math.max(-1, newStats.food - 1);
+                newStats.health = Math.min(100, newStats.health);
+                newStats.score += 10;
+
+                setStats(newStats);
+                setResult(outcome.text);
+            };
+
+            const nextDay = () => {
+                if (stats.health <= 0 || stats.food < 0) {
+                    setView('gameover');
+                    return;
+                }
+                setLogs([...logs, { day, text: result }]);
+                setResult(null);
+                setCurrentEvent(null);
+                setDay(d => d + 1);
+            };
+
+            // --- RENDERERS ---
+
+            if (view === 'loading') return (
+                <div className="flex h-screen items-center justify-center flex-col gap-4">
+                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p>Loading Events...</p>
+                    {error && <p className="text-red-500 bg-red-900/20 p-2 rounded">Error: {error}</p>}
+                </div>
+            );
+
+            if (view === 'menu') return (
+                <div className="max-w-md mx-auto p-6 h-screen flex flex-col justify-center text-center">
+                    <h1 className="text-4xl font-black mb-2 tracking-tighter text-white">SURVIVOR<span className="text-blue-500">.JSON</span></h1>
+                    <p className="text-gray-500 mb-8">Loaded {events.length} Events from external files.</p>
+                    <button onClick={() => { setMode('daily'); setView('game'); }} className="bg-blue-600 text-white p-4 rounded-xl font-bold mb-3 hover:bg-blue-500">DAILY RUN</button>
+                    <button onClick={() => { setMode('practice'); setView('game'); }} className="bg-gray-800 text-white p-4 rounded-xl font-bold hover:bg-gray-700">PRACTICE RUN</button>
+                </div>
+            );
+
+            if (view === 'gameover') return (
+                <div className="max-w-md mx-auto p-6 h-screen flex flex-col justify-center text-center">
+                    <Skull className="mx-auto text-red-500 mb-4" size={64} />
+                    <h2 className="text-3xl font-bold text-white mb-2">YOU DIED</h2>
+                    <p className="text-gray-400 mb-8">Survived {day} Days</p>
+                    <button onClick={() => window.location.reload()} className="bg-gray-800 p-4 rounded text-white">Main Menu</button>
+                </div>
+            );
+
+            return (
+                <div className="max-w-lg mx-auto h-screen flex flex-col bg-gray-950">
+                    {/* Header */}
+                    <div className="p-4 border-b border-gray-800 flex justify-between bg-gray-900">
+                        <span className="font-mono text-yellow-500 font-bold">DAY {day}</span>
+                        <span className="font-mono text-gray-500">SCORE: {stats.score}</span>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-4 gap-2 p-4">
+                        <div className="bg-gray-900 p-2 rounded text-center border border-gray-800">
+                            <Heart className={`w-5 h-5 mx-auto mb-1 ${stats.health < 30 ? 'text-red-500' : 'text-red-400'}`} />
+                            <span className="font-bold">{stats.health}</span>
+                        </div>
+                        <div className="bg-gray-900 p-2 rounded text-center border border-gray-800">
+                            <Utensils className="w-5 h-5 mx-auto mb-1 text-orange-400" />
+                            <span className="font-bold">{stats.food}</span>
+                        </div>
+                        <div className="bg-gray-900 p-2 rounded text-center border border-gray-800">
+                            <Zap className="w-5 h-5 mx-auto mb-1 text-yellow-400" />
+                            <span className="font-bold">{stats.energy}</span>
+                        </div>
+                        <div className="bg-gray-900 p-2 rounded text-center border border-gray-800">
+                            <TrendingUp className="w-5 h-5 mx-auto mb-1 text-blue-400" />
+                            <span className="font-bold">{stats.morale}</span>
+                        </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto p-4">
+                        {/* History */}
+                        <div className="space-y-2 mb-6 opacity-60 text-sm">
+                            {logs.slice(-2).map((l, i) => (
+                                <div key={i} className="border-l-2 border-gray-700 pl-2">
+                                    <span className="font-bold text-gray-500">Day {l.day}:</span> {l.text}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Event Card */}
+                        <div className="fade-in">
+                            {result ? (
+                                <div className="bg-gray-800 p-6 rounded-xl border-l-4 border-blue-500">
+                                    <h3 className="font-bold text-xl mb-2">Outcome</h3>
+                                    <p className="mb-6 text-gray-300">{result}</p>
+                                    <button onClick={nextDay} className="w-full bg-blue-600 py-3 rounded font-bold hover:bg-blue-500">Next Day</button>
+                                </div>
+                            ) : currentEvent ? (
+                                <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
+                                    <h2 className="font-bold text-2xl mb-4">{currentEvent.title}</h2>
+                                    <p className="mb-6 text-gray-300 leading-relaxed">{currentEvent.text}</p>
+                                    
+                                    <div className="space-y-3">
+                                        {currentEvent.choices.map((c, i) => {
+                                            // Requirements Check
+                                            let locked = false;
+                                            if(c.req) {
+                                                if(c.req.food && stats.food < c.req.food) locked = true;
+                                                if(c.req.energy && stats.energy < c.req.energy) locked = true;
+                                            }
+
+                                            return (
+                                                <button 
+                                                    key={i} 
+                                                    disabled={locked}
+                                                    onClick={() => handleChoice(c, i)}
+                                                    className={`w-full text-left p-4 rounded border transition-all
+                                                        ${locked ? 'bg-gray-900 border-gray-800 opacity-50' : 'bg-gray-700 border-gray-600 hover:bg-gray-600'}
+                                                    `}
+                                                >
+                                                    <div className="flex justify-between">
+                                                        <span className="font-bold">{c.text}</span>
+                                                        <span className="text-xs uppercase bg-black/30 px-2 py-1 rounded">{c.risk || 'Normal'}</span>
+                                                    </div>
+                                                    {c.req && <div className="text-xs text-red-400 mt-1">Req: {JSON.stringify(c.req)}</div>}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+        lucide.createIcons();
+    </script>
+</body>
+</html>
