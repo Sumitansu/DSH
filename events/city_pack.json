@@ -1,0 +1,30 @@
+[
+  {
+    "id": "city_shop",
+    "title": "Looted Electronics Store",
+    "text": "Glass everywhere. Most things are gone, but the back room might have batteries.",
+    "choices": [
+      {
+        "text": "Search carefully",
+        "risk": "safe",
+        "threshold": 0.7,
+        "success": { "text": "Found batteries!", "effects": { "energy": 20 } },
+        "fail": { "text": "Cut your hand on glass.", "effects": { "health": -5 } }
+      },
+      {
+        "text": "Smash open the safe",
+        "risk": "loud",
+        "threshold": 0.3,
+        "success": { "text": "Jackpot! Energy bars inside.", "effects": { "food": 2 } },
+        "fail": { "text": "You alerted nearby looters.", "effects": { "threat": 10 } }
+      },
+      {
+        "text": "Leave",
+        "risk": "safe",
+        "threshold": 1.0,
+        "success": { "text": "You walk away.", "effects": {} },
+        "fail": { "text": "...", "effects": {} }
+      }
+    ]
+  }
+]
