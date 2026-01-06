@@ -1,0 +1,47 @@
+[
+  {
+    "id": "intro_wolf",
+    "title": "The Starving Wolf",
+    "text": "A lone wolf blocks your path. It looks more afraid than angry, but it's baring its teeth.",
+    "req": { "minDay": 1 },
+    "choices": [
+      {
+        "text": "Scare it away",
+        "risk": "safe",
+        "threshold": 0.8,
+        "success": { "text": "You yell loudly. It scampers off.", "effects": { "energy": -5 } },
+        "fail": { "text": "It lunges! You take a scratch before kicking it away.", "effects": { "health": -10 } }
+      },
+      {
+        "text": "Kill it for meat",
+        "risk": "deadly",
+        "threshold": 0.4,
+        "success": { "text": "A brutal fight, but you eat well tonight.", "effects": { "food": 3, "health": -5 } },
+        "fail": { "text": "It was faster than you. You are badly bitten.", "effects": { "health": -30, "morale": -10 } }
+      },
+      {
+        "text": "Offer it food",
+        "risk": "safe",
+        "req": { "food": 1 },
+        "threshold": 0.5,
+        "success": { "text": "It eats the food and leaves you alone.", "effects": { "food": -1, "morale": 10 } },
+        "fail": { "text": "It eats the food... and still wants to bite you.", "effects": { "food": -1, "health": -5 } }
+      },
+      {
+        "text": "Run away",
+        "risk": "medium",
+        "threshold": 0.6,
+        "success": { "text": "You outran it.", "effects": { "energy": -20 } },
+        "fail": { "text": "It nipped your heels as you fled.", "effects": { "health": -5, "energy": -25 } }
+      },
+      {
+        "text": "Use Flare (Item)",
+        "risk": "safe",
+        "req": { "energy": 10 },
+        "threshold": 1.0,
+        "success": { "text": "The bright light terrifies the beast.", "effects": { "energy": -10 } },
+        "fail": { "text": "Dud flare.", "effects": {} }
+      }
+    ]
+  }
+]
